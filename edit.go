@@ -66,6 +66,7 @@ func (v *View) EditWrite(ch rune) {
 // EditDelete deletes a rune at the cursor position. back determines the
 // direction.
 func (v *View) EditDelete(back bool) {
+	
 	x, y := v.ox+v.cx, v.oy+v.cy
 	if y < 0 {
 		return
