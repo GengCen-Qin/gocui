@@ -14,7 +14,7 @@ import (
 	"github.com/nsf/termbox-go"
 )
 
-// A View is a window. It maintains its own internal buffer and cursor
+// A Vie·w is a window. It maintains its own internal buffer and cursor
 // position.
 type View struct {
 	name           string
@@ -299,24 +299,31 @@ func (v *View) draw() error {
 		v.viewLines = nil
 		for i, line := range v.lines {
 			if v.Wrap {
-				if len(line) < maxX {
-					vline := viewLine{linesX: 0, linesY: i, line: line}
-					v.viewLines = append(v.viewLines, vline)
-					continue
-				} else {
-					for n := 0; n <= len(line); n += maxX {
-						if len(line[n:]) <= maxX {
-							vline := viewLine{linesX: n, linesY: i, line: line[n:]}
-							v.viewLines = append(v.viewLines, vline)
-						} else {
-							vline := viewLine{linesX: n, linesY: i, line: line[n : n+maxX]}
-							v.viewLines = append(v.viewLines, vline)
-						}
-					}
-				}
-			} else {
-				vline := viewLine{linesX: 0, linesY: i, line: line}
-				v.viewLines = append(v.viewLines, vline)
+			    if len(line) < maxX {
+			        vline := viewLine{linesX: 0, linesY: i, line: line}
+			        v.viewLines = append(v.viewLines, vline)
+			        continue
+			    } else {
+			        lineWidth := 0
+			        startPos := 0
+			        for pos, cell := range line {
+			            width := runewidth.RuneWidth(cell.chr)
+			            if lineWidth+width > maxX {
+			                // 当前行已满，创建新行
+			                vline := viewLine{linesX: startPos, linesY: i, line: line[startPos:pos]}
+			                v.viewLines = append(v.viewLines, vline)
+			                startPos = pos
+			                lineWidth = width
+			            } else {
+			                lineWidth += width
+			            }
+			        }
+			        // 添加最后一部分
+			        if startPos < len(line) {
+			            vline := viewLine{linesX: startPos, linesY: i, line: line[startPos:]}
+			            v.viewLines = append(v.viewLines, vline)
+			        }
+			    }
 			}
 		}
 		v.tainted = false
@@ -377,8 +384,19 @@ func (v *View) realPosition(vx, vy int) (x, y int, err error) {
 
 	if vy < len(v.viewLines) {
 		vline := v.viewLines[vy]
-		x = vline.linesX + vx
-		y = vline.linesY
+        
+        // 处理水平偏移，需要考虑每个字符的实际宽度
+        remainingWidth := vx
+        x = vline.linesX
+        for i, c := range vline.line {
+            if remainingWidth <= 0 {
+                x = vline.linesX + i
+                break
+            }
+            remainingWidth -= runewidth.RuneWidth(c.chr)
+        }
+        
+        y = vline.linesY
 	} else {
 		vline := v.viewLines[len(v.viewLines)-1]
 		x = vx

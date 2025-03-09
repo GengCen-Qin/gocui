@@ -4,7 +4,11 @@
 
 package gocui
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/mattn/go-runewidth"
+)
 
 const maxInt = int(^uint(0) >> 1)
 
@@ -54,8 +58,10 @@ func simpleEditor(v *View, key Key, ch rune, mod Modifier) {
 
 // EditWrite writes a rune at the cursor position.
 func (v *View) EditWrite(ch rune) {
-	v.writeRune(v.cx, v.cy, ch)
-	v.MoveCursor(1, 0, true)
+    v.writeRune(v.cx, v.cy, ch)
+    // 移动光标，考虑字符宽度
+    width := runewidth.RuneWidth(ch)
+    v.MoveCursor(width, 0, true)
 }
 
 // EditDelete deletes a rune at the cursor position. back determines the
@@ -116,6 +122,15 @@ func (v *View) EditNewLine() {
 // MoveCursor moves the cursor taking into account the width of the line/view,
 // displacing the origin if necessary.
 func (v *View) MoveCursor(dx, dy int, writeMode bool) {
+    // 当向右移动时，需要考虑当前字符的宽度
+    if dx > 0 && v.cx < len(v.viewLines[v.oy+v.cy].line) {
+        // 获取当前字符的宽度
+        currentRune := v.viewLines[v.oy+v.cy].line[v.cx].chr
+        width := runewidth.RuneWidth(currentRune)
+        // 调整dx为字符的实际宽度
+        dx = width
+    }
+
 	maxX, maxY := v.Size()
 	cx, cy := v.cx+dx, v.cy+dy
 	x, y := v.ox+cx, v.oy+cy
@@ -235,59 +250,70 @@ func (v *View) MoveCursor(dx, dy int, writeMode bool) {
 // buffer is increased if the point is out of bounds. Overwrite mode is
 // governed by the value of View.overwrite.
 func (v *View) writeRune(x, y int, ch rune) error {
-	v.tainted = true
+    v.tainted = true
 
-	x, y, err := v.realPosition(x, y)
-	if err != nil {
-		return err
-	}
+    x, y, err := v.realPosition(x, y)
+    if err != nil {
+        return err
+    }
 
-	if x < 0 || y < 0 {
-		return errors.New("invalid point")
-	}
+    if x < 0 || y < 0 {
+        return errors.New("invalid point")
+    }
 
-	if y >= len(v.lines) {
-		s := make([][]cell, y-len(v.lines)+1)
-		v.lines = append(v.lines, s...)
-	}
+    if y >= len(v.lines) {
+        s := make([][]cell, y-len(v.lines)+1)
+        v.lines = append(v.lines, s...)
+    }
 
-	olen := len(v.lines[y])
+    // 获取字符宽度
+    width := runewidth.RuneWidth(ch)
+    olen := len(v.lines[y])
 
-	var s []cell
-	if x >= len(v.lines[y]) {
-		s = make([]cell, x-len(v.lines[y])+1)
-	} else if !v.Overwrite {
-		s = make([]cell, 1)
-	}
-	v.lines[y] = append(v.lines[y], s...)
+    var s []cell
+    if x >= len(v.lines[y]) {
+        s = make([]cell, x-len(v.lines[y])+1)
+    } else if !v.Overwrite {
+        s = make([]cell, width) // 使用字符宽度
+    }
+    v.lines[y] = append(v.lines[y], s...)
 
-	if !v.Overwrite || (v.Overwrite && x >= olen-1) {
-		copy(v.lines[y][x+1:], v.lines[y][x:])
-	}
-	v.lines[y][x] = cell{
-		fgColor: v.FgColor,
-		bgColor: v.BgColor,
-		chr:     ch,
-	}
-
-	return nil
+    if !v.Overwrite || (v.Overwrite && x >= olen-1) {
+        copy(v.lines[y][x+width:], v.lines[y][x:]) // 使用字符宽度
+    }
+    v.lines[y][x] = cell{
+        fgColor: v.FgColor,
+        bgColor: v.BgColor,
+        chr:     ch,
+    }
+    
+    // 如果是双宽字符，需要考虑后续光标位置调整
+    return nil
 }
 
 // deleteRune removes a rune from the view's internal buffer, at the
 // position corresponding to the point (x, y).
 func (v *View) deleteRune(x, y int) error {
-	v.tainted = true
+    v.tainted = true
 
-	x, y, err := v.realPosition(x, y)
-	if err != nil {
-		return err
-	}
+    x, y, err := v.realPosition(x, y)
+    if err != nil {
+        return err
+    }
 
-	if x < 0 || y < 0 || y >= len(v.lines) || x >= len(v.lines[y]) {
-		return errors.New("invalid point")
-	}
-	v.lines[y] = append(v.lines[y][:x], v.lines[y][x+1:]...)
-	return nil
+    if x < 0 || y < 0 || y >= len(v.lines) || x >= len(v.lines[y]) {
+        return errors.New("invalid point")
+    }
+    
+    // 获取要删除的字符宽度
+    width := 1
+    if x < len(v.lines[y]) {
+        width = runewidth.RuneWidth(v.lines[y][x].chr)
+    }
+    
+    // 删除字符
+    v.lines[y] = append(v.lines[y][:x], v.lines[y][x+width:]...)
+    return nil
 }
 
 // mergeLines merges the lines "y" and "y+1" if possible.
